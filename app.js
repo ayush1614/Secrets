@@ -3,6 +3,7 @@ const express = require('express');
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
+const md5 = require('md5');
 const encrypt = require('mongoose-encryption');
 
 const app = express();
@@ -11,17 +12,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 
 mongoose.connect("mongodb://localhost:27017/userDB", { useNewUrlParser: true });
-console.log(process.env.API_KEY) ; 
 
 //for security we are now making the schema from mongoose schema class
 const userSchema = new mongoose.Schema({
     email: String,
     password: String
 })
-
-//extending the facility of the userSchema 
-let secret = "Thisisourlittlesecret.";              // for security adding the string      
-userSchema.plugin(encrypt, { secret: process.env.SECRET, encryptedFields: ['password'] });    //encrypt package by adding encrypt plugin
 
 const User = new mongoose.model('user', userSchema);
 
@@ -46,14 +42,27 @@ app.get("/secrets", function (request, response) {
 });
 
 app.post("/register", function (request, response) {
+    let username = request.body.username;
+    let password = request.body.password;
 
-    const newUser = new User({
-        email: request.body.username,
-        password: request.body.password
+    let errors = {};
+    User.findOne({ email: username }, function (err, foundUser) {
+        if(foundUser.email === username)
+        {
+            console.log('Email alredy exists') ; 
+        }
+        else
+        {
+            const newUser = new User({
+                email : username , 
+                password : md5(password)
+            }) ;
+            newUser.save();
+            console.log("data added successfully") ; 
+        }
     });
-
-    newUser.save();         // automatically encrypts the password
-    response.redirect("/");
+    // newUser.save();         // automatically encrypts the password
+    response.redirect("/register");
 });
 
 app.post("/login", function (request, response) {
@@ -70,7 +79,7 @@ app.post("/login", function (request, response) {
                 response.redirect("secrets");
             }
             else
-                console.log("wrong password")
+                console.log("wrong password");
         }
     });
 });
