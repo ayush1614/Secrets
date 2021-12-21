@@ -3,8 +3,6 @@ const express = require('express');
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const bcrypt = require('bcrypt');
-const saltRounds = 10;
 const session = require('express-session');
 const passport = require('passport');
 const passportLocalMongoose = require('passport-local-mongoose');
@@ -36,12 +34,12 @@ mongoose.connect("mongodb://localhost:27017/userDB",
         console.log("No connection");
     });
 
-//for security we are now making the schema from mongoose schema class
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
-    googleId: String
-})
+    googleId: String,
+    secret: String
+});
 
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
@@ -66,7 +64,6 @@ passport.use(new GoogleStrategy({
     userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
 },
     function (accessToken, refreshToken, profile, cb) {
-        console.log(profile);
         User.findOrCreate({ googleId: profile.id }, function (err, user) {
             return cb(err, user);
         });
@@ -88,14 +85,35 @@ app.get("/register", function (req, res) {
     res.render("register");
 });
 
-// renders the secrets page 
-app.get("/secrets", function (request, response) {
+app.get("/auth/google",
+    passport.authenticate('google', { scope: ["profile"] })
+);
 
+app.get("/auth/google/secrets",
+    passport.authenticate('google', { failureRedirect: "/login" }),
+    function (req, res) {
+        // Successful authentication, redirect to secrets.
+        res.redirect("/secrets");
+    });
+
+app.get("/submit", function (request, response) {
     if (request.isAuthenticated())
-        response.render("secrets");
-
+        response.render("submit");
     else
-        response.redirect('/login');
+        response.redirect("/login");
+})
+
+app.get("/secrets", function (req, res) {
+    User.find({ "secret": { $ne: null } }, function (err, foundUsers) {
+        if (err) {
+            console.log(err);
+        }
+        else {
+            if (foundUsers) {
+                res.render("secrets", { userWithSecrets: foundUsers })
+            }
+        }
+    })
 });
 
 // defining the logout page
@@ -117,7 +135,6 @@ app.get('/auth/google/secrets',
 app.post("/register", function (request, response) {
 
     User.register({ username: request.body.username }, request.body.password, function (err, user) {
-
         if (err) {
             console.log(err);
             response.redirect("/register");
@@ -125,13 +142,14 @@ app.post("/register", function (request, response) {
         else {
             passport.authenticate("local")(request, response, function () {
                 response.redirect("/secrets");
-            }); 
+            });
         }
 
     });
 });
 
 app.post("/login", function (request, response) {
+
     const user = new User({
         username: request.body.username,
         password: request.body.password
@@ -141,11 +159,29 @@ app.post("/login", function (request, response) {
             console.log(err);
         }
         else {
-            passport.authenticate("local");
-            response.redirect("/secrets");
+            passport.authenticate("local")(request, response, function () {
+                response.redirect("/secrets");
+            });
         }
     })
 });
+
+app.post("/submit", function (req, res) {
+
+    User.findById(req.user.id, function (err, foundUser) {
+        if (err) {
+            console.log(err);
+        }
+        else {
+            if (foundUser) {
+                foundUser.secret = req.body.secret;
+                foundUser.save(function () {
+                    res.redirect("/secrets");
+                });
+            }
+        }
+    })
+})
 
 app.listen(3000, function () {
     console.log("Server started successfully");
